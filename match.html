@@ -1,0 +1,248 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Match en Direct - Table de Marque</title>
+    <style>
+        body { margin: 0; font-family: Arial, sans-serif; background: #f4f4f4; }
+        header { background: #007BFF; color: white; padding: 15px; text-align: center; font-size: 1.5em; }
+        .container { display: flex; height: calc(100vh - 60px); }
+        .team-column {
+            width: 30%; padding: 10px; overflow-y: auto; background: #ffffff;
+        }
+        .center-column {
+            width: 40%; background: #e9ecef; display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+            padding-top: 10px;
+        }
+        .center-column button {
+            padding: 10px 20px;
+            font-size: 1em;
+            margin: 3px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            width: 80%;
+        }
+        .but { background-color: #28a745; color: white; }
+        .tir { background-color: #ffc107; color: black; }
+        .arret { background-color: #17a2b8; color: white; }
+        .jaune { background-color: yellow; color: black; }
+        .rouge { background-color: red; color: white; }
+        .deuxmin { background-color: orange; color: black; }
+        .tm { background-color: #6c757d; color: white; }
+
+        .player, .official {
+            padding: 6px;
+            border-bottom: 1px solid #ddd;
+            cursor: pointer;
+        }
+
+        .selected { background-color: #d1ecf1; }
+        h2 { text-align: center; }
+    </style>
+</head>
+<body>
+
+<header>Match en Direct - Table de Marque</header>
+
+<div class="container">
+    <div class="team-column" id="equipeA">
+        <h2>Équipe A</h2>
+        <div class="list" id="listA"></div>
+    </div>
+
+    <div class="center-column">
+        <div id="chrono-controls" style="width: 100%; text-align: center;">
+            <div style="font-size: 3em; font-weight: bold;" id="timer">00:00</div>
+            <div id="period-status" style="font-size: 1.1em; margin-top: 5px; color: #555;"></div>
+            <div style="margin-top: 10px;">
+                <button onclick="startTimer()">Démarrer</button>
+                <button onclick="stopTimer()">Pause</button>
+            </div>
+            <div style="margin-top: 10px;">
+                <button onclick="adjustTime(60)">+1 min</button>
+                <button onclick="adjustTime(-60)">-1 min</button>
+                <button onclick="adjustTime(10)">+10 s</button>
+                <button onclick="adjustTime(-10)">-10 s</button>
+                <button onclick="resetTimer()">↩️</button>
+            </div>
+        </div>
+
+        <hr style="width: 90%; margin: 20px auto;">
+
+        <div id="actions" style="display: flex; flex-direction: column; align-items: center; gap: 6px;">
+            <button class="but" onclick="addAction('BUT')">+ BUT</button>
+            <button class="tir" onclick="addAction('TIR')">+ TIR</button>
+            <button class="arret" onclick="addAction('ARRET')">+ ARRÊT</button>
+            <button class="jaune" onclick="addAction('JAUNE')">+ JAUNE</button>
+            <button class="deuxmin" onclick="addAction('2MIN')">+ 2 MIN</button>
+            <button class="rouge" onclick="addAction('ROUGE')">+ ROUGE</button>
+            <button class="tm" onclick="addAction('TM_A')">TM ÉQUIPE A</button>
+            <button class="tm" onclick="addAction('TM_B')">TM ÉQUIPE B</button>
+        </div>
+
+        <hr style="width: 90%; margin: 20px auto;">
+
+        <div style="width: 95%; max-height: 220px; overflow-y: auto; background: white; border: 1px solid #ccc; padding: 10px;">
+            <strong>Historique des actions :</strong>
+            <table style="width:100%; border-collapse: collapse; margin-top: 5px;">
+                <thead>
+                    <tr style="background:#f0f0f0;">
+                        <th>#</th>
+                        <th>Temps</th>
+                        <th>Action</th>
+                        <th>Équipe</th>
+                        <th>Joueur</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="historique-body"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="team-column" id="equipeB">
+        <h2>Équipe B</h2>
+        <div class="list" id="listB"></div>
+    </div>
+</div>
+
+<script>
+let timerInterval;
+let totalSeconds = 0;
+let currentPeriod = 1;
+let historique = [];
+
+let selectedPlayer = null;
+let selectedTeam = null;
+
+window.onload = function () {
+    const equipeA = JSON.parse(localStorage.getItem("equipeA") || "[]");
+    const equipeB = JSON.parse(localStorage.getItem("equipeB") || "[]");
+
+    function displayTeam(containerId, data, teamId) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = `<h2>Équipe ${teamId}</h2>`;
+        let letter = 'A'.charCodeAt(0);
+
+        data.forEach(person => {
+            const label = person.role === 'officiel'
+                ? `${String.fromCharCode(letter++)}`
+                : `#${person.numero}`;
+
+            const div = document.createElement("div");
+            div.className = person.role;
+            div.classList.add("player");
+            div.textContent = label;
+            div.onclick = () => selectPlayer(div, teamId);
+            container.appendChild(div);
+        });
+    }
+
+    displayTeam("listA", equipeA, "A");
+    displayTeam("listB", equipeB, "B");
+};
+
+function updateTimerDisplay() {
+    const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+    const seconds = String(totalSeconds % 60).padStart(2, '0');
+    document.getElementById('timer').innerText = `${minutes}:${seconds}`;
+}
+
+function startTimer() {
+    if (timerInterval) return;
+    timerInterval = setInterval(() => {
+        totalSeconds++;
+        if (currentPeriod === 1 && totalSeconds >= 1800) {
+            stopTimer();
+            document.getElementById("period-status").innerText = "Fin de la 1re mi-temps";
+            return;
+        } else if (currentPeriod === 2 && totalSeconds >= 3600) {
+            stopTimer();
+            document.getElementById("period-status").innerText = "Fin du match";
+            return;
+        }
+        updateTimerDisplay();
+    }, 1000);
+}
+
+function stopTimer() {
+    clearInterval(timerInterval);
+    timerInterval = null;
+    if (totalSeconds >= 1800 && totalSeconds < 3600 && currentPeriod === 1) {
+        currentPeriod = 2;
+        totalSeconds = 1800;
+        document.getElementById("period-status").innerText = "2e mi-temps";
+        updateTimerDisplay();
+    }
+}
+
+function adjustTime(seconds) {
+    totalSeconds = Math.max(0, totalSeconds + seconds);
+    updateTimerDisplay();
+}
+
+function resetTimer() {
+    stopTimer();
+    totalSeconds = 0;
+    currentPeriod = 1;
+    document.getElementById("period-status").innerText = "";
+    updateTimerDisplay();
+}
+
+function getCurrentTime() {
+    return document.getElementById('timer').innerText;
+}
+
+function selectPlayer(element, team) {
+    document.querySelectorAll('.player, .official').forEach(p => p.classList.remove('selected'));
+    element.classList.add('selected');
+    selectedPlayer = element.innerText;
+    selectedTeam = team;
+}
+
+function addAction(action) {
+    const horodatage = getCurrentTime();
+    if (!selectedPlayer && !action.startsWith("TM")) {
+        alert("Veuillez sélectionner un joueur ou un officiel.");
+        return;
+    }
+
+    const equipe = action.startsWith("TM") ? action.split("_")[1] : selectedTeam;
+    const joueur = action.startsWith("TM") ? "(Temps-mort)" : selectedPlayer;
+    const actionLabel = action.replace("_", " ");
+
+    const ligne = {
+        time: horodatage,
+        action: actionLabel,
+        team: equipe,
+        player: joueur
+    };
+
+    historique.push(ligne);
+
+    const row = document.createElement("tr");
+    row.innerHTML = `
+        <td>${historique.length}</td>
+        <td>${ligne.time}</td>
+        <td>${ligne.action}</td>
+        <td>${ligne.team}</td>
+        <td>${ligne.player}</td>
+        <td><button onclick="removeAction(this)">🗑️</button></td>
+    `;
+    document.getElementById("historique-body").appendChild(row);
+}
+
+function removeAction(btn) {
+    const row = btn.closest('tr');
+    const index = row.rowIndex - 1;
+    historique.splice(index, 1);
+    row.remove();
+}
+
+updateTimerDisplay();
+</script>
+
+</body>
+</html>
