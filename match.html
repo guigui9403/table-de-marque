@@ -1,0 +1,289 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Feuille de match</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #f4f4f4; }
+    .container { display: flex; height: 100vh; }
+    .team-column {
+        width: 30%; padding: 10px; overflow-y: auto; background: #ffffff;
+    }
+    .center-column {
+        width: 40%; background: #e9ecef; display: flex; flex-direction: column; align-items: center; padding-top: 10px;
+    }
+    .center-column button {
+        padding: 4px 10px;
+        font-size: 0.85em;
+        margin: 2px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    .but { background-color: #28a745; color: white; }
+    .tir { background-color: #ffc107; color: black; }
+    .arret { background-color: #17a2b8; color: white; }
+    .jaune { background-color: yellow; color: black; }
+    .rouge { background-color: red; color: white; }
+    .deuxmin { background-color: orange; color: white; }
+    .tm { background-color: #6c757d; color: white; }
+    .player, .official {
+        padding: 6px;
+        border-bottom: 1px solid #ddd;
+        cursor: pointer;
+    }
+    .selected { background-color: #d1ecf1; }
+    .sanction-box {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        margin-left: 4px;
+        border: 1px solid #444;
+        border-radius: 2px;
+        font-size: 10px;
+        text-align: center;
+        line-height: 12px;
+    }
+    .jaune-box { background: yellow; }
+    .rouge-box { background: red; }
+    .deuxmin-box { background: orange; color: white; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="team-column" id="equipeA"><h2>Équipe A</h2><div class="list" id="listA"></div></div>
+  <div class="center-column">
+    <div id="timer" style="font-size: 2.5em; font-weight: bold;">00:00</div>
+    <div id="period-status" style="font-size: 1.1em; margin-top: 5px; color: #555;"></div>
+    <div>
+      <button onclick="startTimer()">Démarrer</button>
+      <button onclick="stopTimer()">Pause</button>
+    </div>
+    <div>
+      <button onclick="adjustTime(60)">+1 min</button>
+      <button onclick="adjustTime(-60)">-1 min</button>
+      <button onclick="adjustTime(10)">+10 s</button>
+      <button onclick="adjustTime(-10)">-10 s</button>
+      <button onclick="resetTimer()">↩️</button>
+    </div>
+    <hr style="width: 90%;">
+    <div id="actions" style="display: flex; flex-direction: column; align-items: center;">
+      <button class="but" onclick="addAction('BUT')">+ BUT</button>
+      <button class="tir" onclick="addAction('TIR')">+ TIR</button>
+      <button class="arret" onclick="addAction('ARRET')">+ ARRÊT</button>
+      <button class="jaune" onclick="addAction('JAUNE')">+ JAUNE</button>
+      <button class="deuxmin" onclick="addAction('2MIN')">+ 2 MIN</button>
+      <button class="rouge" onclick="addAction('ROUGE')">+ ROUGE</button>
+      <button class="tm" onclick="addAction('TM_A')">TM ÉQUIPE A</button>
+      <button class="tm" onclick="addAction('TM_B')">TM ÉQUIPE B</button>
+    </div>
+    <hr style="width: 90%;">
+    <div style="width: 95%; max-height: 220px; overflow-y: auto; background: white; border: 1px solid #ccc; padding: 10px;">
+      <strong>Historique des actions :</strong>
+      <table style="width:100%; border-collapse: collapse; margin-top: 5px;">
+        <thead><tr><th>#</th><th>Temps</th><th>Action</th><th>Équipe</th><th>Joueur</th><th></th></tr></thead>
+        <tbody id="historique-body"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="team-column" id="equipeB"><h2>Équipe B</h2><div class="list" id="listB"></div></div>
+</div>
+<script>
+let totalSeconds = 0, timerInterval, currentPeriod = 1;
+let selectedPlayer = null, selectedTeam = null;
+let historique = [], playerSanctions = {}, deuxMinTimers = {};
+
+window.onload = function () {
+    const equipeA = JSON.parse(localStorage.getItem("equipeA") || "[]");
+    const equipeB = JSON.parse(localStorage.getItem("equipeB") || "[]");
+
+    function renderTeam(containerId, data, team) {
+        const el = document.getElementById(containerId);
+        el.innerHTML = "";
+        let letter = 'A'.charCodeAt(0);
+        data.forEach(p => {
+            const div = document.createElement("div");
+            const label = p.role === 'officiel' ? String.fromCharCode(letter++) : `#${p.numero}`;
+            div.className = p.role;
+            div.classList.add("player");
+            div.dataset.label = label;
+            div.onclick = () => selectPlayer(div, team);
+            div.innerHTML = label;
+            el.appendChild(div);
+        });
+    }
+
+    renderTeam("listA", equipeA, "A");
+    renderTeam("listB", equipeB, "B");
+};
+
+function updateTimerDisplay() {
+    const m = String(Math.floor(totalSeconds / 60)).padStart(2, '0');
+    const s = String(totalSeconds % 60).padStart(2, '0');
+    document.getElementById("timer").innerText = `${m}:${s}`;
+}
+
+function startTimer() {
+    if (timerInterval) return;
+    timerInterval = setInterval(() => {
+        totalSeconds++;
+        if (currentPeriod === 1 && totalSeconds >= 1800) {
+            stopTimer();
+            document.getElementById("period-status").innerText = "Fin de la 1re mi-temps";
+            return;
+        } else if (currentPeriod === 2 && totalSeconds >= 3600) {
+            stopTimer();
+            document.getElementById("period-status").innerText = "Fin du match";
+            return;
+        }
+        updateTimerDisplay();
+    }, 1000);
+}
+
+function stopTimer() {
+    clearInterval(timerInterval);
+    timerInterval = null;
+    if (totalSeconds >= 1800 && totalSeconds < 3600 && currentPeriod === 1) {
+        currentPeriod = 2;
+        totalSeconds = 1800;
+        document.getElementById("period-status").innerText = "2e mi-temps";
+        updateTimerDisplay();
+    }
+}
+
+function adjustTime(seconds) {
+    totalSeconds = Math.max(0, totalSeconds + seconds);
+    updateTimerDisplay();
+}
+
+function resetTimer() {
+    stopTimer();
+    totalSeconds = 0;
+    currentPeriod = 1;
+    document.getElementById("period-status").innerText = "";
+    updateTimerDisplay();
+}
+
+function getCurrentTime() {
+    return document.getElementById('timer').innerText;
+}
+
+function selectPlayer(el, team) {
+    document.querySelectorAll('.player, .official').forEach(p => p.classList.remove('selected'));
+    el.classList.add('selected');
+    selectedPlayer = el.dataset.label;
+    selectedTeam = team;
+}
+
+function addAction(action) {
+    if (!selectedPlayer && !action.startsWith("TM")) {
+        alert("Veuillez sélectionner un joueur ou un officiel.");
+        return;
+    }
+    const time = getCurrentTime();
+    const team = action.startsWith("TM") ? action.split("_")[1] : selectedTeam;
+    const player = action.startsWith("TM") ? "(Temps-mort)" : selectedPlayer;
+
+    if (!playerSanctions[player]) {
+        playerSanctions[player] = { jaune: false, rouge: false, deuxmin: 0 };
+    }
+
+    if (action === "JAUNE" && !playerSanctions[player].jaune) playerSanctions[player].jaune = true;
+    if (action === "ROUGE") playerSanctions[player].rouge = true;
+    if (action === "2MIN" && playerSanctions[player].deuxmin < 3) {
+        playerSanctions[player].deuxmin += 1;
+        startDeuxMinTimer(player);
+    }
+
+    updateSanctions(player);
+
+    const row = document.createElement("tr");
+    row.innerHTML = `<td>${historique.length + 1}</td><td>${time}</td><td>${action}</td><td>${team}</td><td>${player}</td><td><button onclick="removeAction(this)">🗑️</button></td>`;
+    document.getElementById("historique-body").appendChild(row);
+    historique.push({ time, action, team, player });
+}
+
+function updateSanctions(playerName) {
+    const elements = document.querySelectorAll(`[data-label="${playerName}"]`);
+    const s = playerSanctions[playerName];
+    elements.forEach(el => {
+        let html = playerName;
+        if (s.jaune) html += '<span class="sanction-box jaune-box"></span>';
+        for (let i = 0; i < s.deuxmin; i++) {
+            html += `<span class="sanction-box deuxmin-box" id="timer-${playerName}-${i}">2</span>`;
+        }
+        if (s.rouge) html += '<span class="sanction-box rouge-box"></span>';
+        el.innerHTML = html;
+    });
+}
+
+
+function startDeuxMinTimer(playerName) {
+    const index = playerSanctions[playerName].deuxmin - 1;
+    const spanId = `timer-${playerName}-${index}`;
+    let seconds = 120;
+
+    const interval = setInterval(() => {
+        const el = document.getElementById(spanId);
+        if (!el) return clearInterval(interval);
+        if (seconds > 0) {
+            const min = String(Math.floor(seconds / 60)).padStart(2, '0');
+            const sec = String(seconds % 60).padStart(2, '0');
+            el.innerText = `${min}:${sec}`;
+            seconds--;
+        } else {
+            clearInterval(interval);
+            el.innerText = ""; // keep the box but remove time
+        }
+    }, 1000);
+
+    deuxMinTimers[spanId] = interval;
+}
+
+    const index = playerSanctions[playerName].deuxmin - 1;
+    const spanId = `timer-${playerName}-${index}`;
+    let seconds = 120;
+    const interval = setInterval(() => {
+        const el = document.getElementById(spanId);
+        if (!el) return clearInterval(interval);
+        seconds--;
+        el.innerText = seconds > 0 ? Math.ceil(seconds / 60) : "";
+        if (seconds <= 0) clearInterval(interval);
+    }, 1000);
+}
+
+
+function removeAction(btn) {
+    const row = btn.closest("tr");
+    const cells = row.querySelectorAll("td");
+    const action = cells[2].innerText;
+    const player = cells[4].innerText;
+    row.remove();
+
+    // remove from historique
+    historique = historique.filter(h => !(h.action === action && h.player === player));
+
+    if (!playerSanctions[player]) return;
+
+    if (action === "JAUNE") playerSanctions[player].jaune = false;
+    if (action === "ROUGE") playerSanctions[player].rouge = false;
+    if (action === "2MIN" && playerSanctions[player].deuxmin > 0) {
+        const index = playerSanctions[player].deuxmin - 1;
+        playerSanctions[player].deuxmin -= 1;
+        const spanId = `timer-${player}-${index}`;
+        const el = document.getElementById(spanId);
+        if (el) el.remove();
+        if (deuxMinTimers[spanId]) clearInterval(deuxMinTimers[spanId]);
+    }
+
+    updateSanctions(player);
+}
+
+    const row = btn.closest("tr");
+    row.remove();
+}
+updateTimerDisplay();
+</script>
+</body>
+</html>
